@@ -26,7 +26,9 @@ extension DatabaseManager {
     // completions block because function to get data out of database is asynchronous
     public func doesUserExists(with email: String, completion: @escaping (Bool) -> Void) {
         // get data from database
-        database.child(email).observeSingleEvent(of: .value) { snapshot in
+        var safeEmail = email.replacingOccurrences(of: ".", with: "-")
+        safeEmail = safeEmail.replacingOccurrences(of: "@", with: "-")
+        database.child(safeEmail).observeSingleEvent(of: .value) { snapshot in
             // if we able to assign foundEmail it means this email exists already
             guard snapshot.value as? String != nil else {
                 completion(false)
@@ -39,7 +41,7 @@ extension DatabaseManager {
     
     /// Inserts new user to database
     public func insertUser(with user: ChatAppUser) {
-        database.child(user.emailAddress).setValue([
+        database.child(user.safeEmail).setValue([
             "first_name": user.firstName,
             "last_name": user.lastName
         ])
@@ -51,4 +53,10 @@ struct ChatAppUser {
     let lastName: String
     let emailAddress: String
     //let profilePictureURL: String
+    
+    var safeEmail: String {
+        var safeEmail = emailAddress.replacingOccurrences(of: ".", with: "-")
+        safeEmail = safeEmail.replacingOccurrences(of: "@", with: "-")
+        return safeEmail
+    }
 }

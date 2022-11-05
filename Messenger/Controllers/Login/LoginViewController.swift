@@ -6,6 +6,7 @@
 //
 
 import FirebaseAuth
+import FBSDKLoginKit
 import UIKit
 
 class LoginViewController: UIViewController {
@@ -67,6 +68,13 @@ class LoginViewController: UIViewController {
         return button
     }()
     
+    private let FBloginButton: FBLoginButton = {
+        let button = FBLoginButton()
+        button.permissions = ["email", "public_profile"]
+        return button
+    }()
+
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .white
@@ -76,6 +84,7 @@ class LoginViewController: UIViewController {
         loginButton.addTarget(self, action: #selector(didTapLoginButton), for: .touchUpInside)
         emailField.delegate = self
         passwordField.delegate = self
+        FBloginButton.delegate = self
         
         // Add subviews
         view.addSubview(scrollView)
@@ -83,6 +92,7 @@ class LoginViewController: UIViewController {
         scrollView.addSubview(emailField)
         scrollView.addSubview(passwordField)
         scrollView.addSubview(loginButton)
+        scrollView.addSubview(FBloginButton)
     }
     
     override func viewDidLayoutSubviews() {
@@ -109,6 +119,11 @@ class LoginViewController: UIViewController {
                                    y: passwordField.bottom+10,
                                    width: scrollView.width-60,
                                    height: 52)
+        
+        FBloginButton.frame = CGRect(x: 30,
+                                     y: loginButton.bottom+20,
+                                     width: scrollView.width-60,
+                                     height: 52)
     }
     
     @objc private func didTapLoginButton() {
@@ -162,5 +177,67 @@ extension LoginViewController: UITextFieldDelegate {
         }
         
         return true
+    }
+}
+
+extension LoginViewController: LoginButtonDelegate {
+    
+    func loginButton(_ loginButton: FBLoginButton, didCompleteWith result: LoginManagerLoginResult?, error: Error?) {
+        guard let token = result?.token?.tokenString else {
+            print("Fail to log in with facebook")
+            return
+        }
+        
+        // to provide user's email and name data to Firebase database (not 100% sure though)
+        let facebookRequest = FBSDKLoginKit.GraphRequest(graphPath: "me",
+                                                         parameters: ["fields": "email, name"],
+                                                         tokenString: token, version: nil,
+                                                         httpMethod: .get)
+        
+        facebookRequest.start { _, result, error in
+            guard let result = result as? [String: Any], error == nil else {
+                print("Failed to make facebook graph request")
+                return
+            }
+
+            // we need to grab email and name out of that result dictionary
+            print(result)
+            guard let userName = result["name"] as? String,
+                  let email = result["email"] as? String else {
+                      print("Failed to get email and name from fb result")
+                      return
+                  }
+            let nameComponents = userName.components(separatedBy: " ") // assuming first and last name of the user is separated by comma
+            guard nameComponents.count == 2 else { return } // make sure there are 2 components
+            
+            let firstName = nameComponents[0]
+            let lastName = nameComponents[1]
+            
+            // going through DatabaseManager we have
+            DatabaseManager.shared.doesUserExists(with: email) { exists in
+                if !exists {
+                    // go ahead and do entry into Firebase database
+                    DatabaseManager.shared.insertUser(with: ChatAppUser(firstName: firstName, lastName: lastName, emailAddress: email))
+                }
+                // we dont need else block cause in this case user exists and we can just simply continue with below signing in code
+            }
+            // the reason we put all code below inside this closure is because when we will continue log in with FB we will check if this email and username already exists in Firebase database and if so won't add it to the database (probably)
+            // we need to trade this token to Firebase credential to get Firebase credentials
+            let credential = FacebookAuthProvider.credential(withAccessToken: token)
+            // use this credantial to sign user in
+            FirebaseAuth.Auth.auth().signIn(with: credential) { [weak self] authDataResult, error in
+                guard authDataResult != nil, error == nil else {
+                    print("Facebook credential log in failed, MFA may be needed")
+                    return
+                }
+
+                print("Successfully logged user in")
+                self?.navigationController?.dismiss(animated: true, completion: nil)
+            }
+        }
+    }
+    
+    func loginButtonDidLogOut(_ loginButton: FBLoginButton) {
+        // no action because we will not show Login screen if user already signed in. Facebook behind the scences change log in button to log out button if user already signed in
     }
 }
