@@ -5,8 +5,10 @@
 //  Created by Olzhas Suleimenov on 25.10.2022.
 //
 
+import Firebase
 import FirebaseAuth
 import FBSDKLoginKit
+import GoogleSignIn
 import UIKit
 
 class LoginViewController: UIViewController {
@@ -73,10 +75,19 @@ class LoginViewController: UIViewController {
         button.permissions = ["email", "public_profile"]
         return button
     }()
-
+    
+    private let googleLoginButton = GIDSignInButton()
+    
+    private var googleLoginObserver: NSObjectProtocol?
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        
+        // the reason we assigning observer to property is once our view controller deinitializes (aka dismisses) we want to get rid of googleLoginObserver if it present to save some memorty and clean things up
+        googleLoginObserver = NotificationCenter.default.addObserver(forName: .didLogInNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.navigationController?.dismiss(animated: true, completion: nil)
+        }
+        
         view.backgroundColor = .white
         title = "Log In"
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Register", style: .done, target: self, action: #selector(didTapRegister))
@@ -85,6 +96,7 @@ class LoginViewController: UIViewController {
         emailField.delegate = self
         passwordField.delegate = self
         FBloginButton.delegate = self
+        googleLoginButton.addTarget(self, action: #selector(didTapGoogleLoginButton), for: .touchUpInside)
         
         // Add subviews
         view.addSubview(scrollView)
@@ -93,6 +105,13 @@ class LoginViewController: UIViewController {
         scrollView.addSubview(passwordField)
         scrollView.addSubview(loginButton)
         scrollView.addSubview(FBloginButton)
+        scrollView.addSubview(googleLoginButton)
+    }
+    
+    deinit {
+        if let observer = googleLoginObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
     
     override func viewDidLayoutSubviews() {
@@ -124,6 +143,11 @@ class LoginViewController: UIViewController {
                                      y: loginButton.bottom+20,
                                      width: scrollView.width-60,
                                      height: 52)
+        
+        googleLoginButton.frame = CGRect(x: 30,
+                                     y: FBloginButton.bottom+20,
+                                     width: scrollView.width-60,
+                                     height: 52)
     }
     
     @objc private func didTapLoginButton() {
@@ -131,6 +155,7 @@ class LoginViewController: UIViewController {
         emailField.resignFirstResponder() // to dismiss the keyboard
         passwordField.resignFirstResponder()
         
+        // simple validation
         guard let email = emailField.text, let password = passwordField.text, !email.isEmpty, !password.isEmpty, password.count >= 6 else {
             alertUserLoginError()
             return
@@ -154,6 +179,16 @@ class LoginViewController: UIViewController {
         let alert = UIAlertController(title: "Oops", message: "Please enter all information to log in.", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Dismiss", style: .cancel, handler: nil))
         present(alert, animated: true)
+    }
+    
+    @objc private func didTapGoogleLoginButton() {
+        let signInConfig = GIDConfiguration(clientID: FirebaseApp.app()?.options.clientID ?? "")
+        
+        GIDSignIn.sharedInstance.signIn(with: signInConfig, presenting: self) { user, error in
+            guard error == nil else { return }
+            
+            // If sign in succeeded, display the app's main content View.
+        }
     }
     
     @objc private func didTapRegister() {
